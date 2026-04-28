@@ -45,8 +45,33 @@ export async function GET(request: NextRequest) {
       db.studentProfile.count({ where }),
     ])
 
+    const studentsWithBalances = await Promise.all(
+      students.map(async (student) => {
+        const transactions = await db.transaction.findMany({
+          where: { studentId: student.id },
+          select: { type: true, amount: true },
+        })
+
+        const charges = transactions
+          .filter((t) => t.type === 'charge')
+          .reduce((sum, t) => sum + t.amount, 0)
+        const payments = transactions
+          .filter((t) => t.type === 'payment')
+          .reduce((sum, t) => sum + t.amount, 0)
+        const adjustments = transactions
+          .filter((t) => t.type === 'adjustment')
+          .reduce((sum, t) => sum + t.amount, 0)
+
+        return {
+          ...student,
+          balance: charges - payments + adjustments,
+        }
+      })
+    )
+
     return NextResponse.json({
-      students,
+      students: studentsWithBalances,
+      total,
       pagination: {
         page,
         limit,

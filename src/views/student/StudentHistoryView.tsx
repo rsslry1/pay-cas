@@ -62,12 +62,17 @@ interface Transaction {
   createdBy?: { id: string; name: string }
 }
 
+interface LedgerSummary {
+  balance: number
+}
+
 export default function StudentHistoryView() {
   const { currentUser } = useAppStore()
   const studentId = currentUser?.studentProfile?.id
 
   const [receiptList, setReceiptList] = useState<Receipt[]>([])
   const [transactions, setTransactions] = useState<Transaction[]>([])
+  const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null)
   const [loadingReceipts, setLoadingReceipts] = useState(true)
   const [loadingTransactions, setLoadingTransactions] = useState(true)
   const [activeTab, setActiveTab] = useState('receipts')
@@ -97,6 +102,9 @@ export default function StudentHistoryView() {
       const data = await students.ledger(studentId)
       const list = data.transactions || []
       setTransactions(list)
+      setLedgerSummary({
+        balance: data.summary?.balance || 0,
+      })
     } catch {
       toast.error('Failed to load transactions')
     } finally {
@@ -354,9 +362,7 @@ export default function StudentHistoryView() {
                 <CardContent className="p-4">
                   <p className="text-xs text-emerald-200 font-medium">Current Balance</p>
                   <p className="text-2xl font-bold text-white">
-                    {formatCurrency(
-                      transactions.length > 0 ? transactions[transactions.length - 1].balanceAfter : 0
-                    )}
+                    {formatCurrency(ledgerSummary?.balance || 0)}
                   </p>
                   <p className="text-xs text-emerald-200 mt-1">
                     {transactions.length} total transactions

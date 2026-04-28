@@ -131,7 +131,7 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const authUser = await requireAuth('admin')
+    const authUser = await requireAuth('staff')
     const { id } = await params
 
     const existing = await db.studentProfile.findUnique({ where: { id } })

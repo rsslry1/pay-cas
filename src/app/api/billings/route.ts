@@ -132,6 +132,50 @@ export async function POST(request: NextRequest) {
       include: { feeCategory: true },
     })
 
+    // New billings are automatically assigned to all active students, and
+    // each student is charged the full billing amount.
+    let assignResults: any[] = []
+    const students = await db.studentProfile.findMany({ where: { status: 'active' } })
+    const total = billing.amount
+    if (students.length > 0) {
+      for (const student of students) {
+        const amountToCharge = total
+
+        const assignment = await db.billingAssignment.create({ data: { billingId: billing.id, studentId: student.id } })
+
+        const lastTransaction = await db.transaction.findFirst({ where: { studentId: student.id }, orderBy: { createdAt: 'desc' } })
+        const balanceBefore = lastTransaction ? lastTransaction.balanceAfter : 0
+        const balanceAfter = balanceBefore + amountToCharge
+
+        await db.transaction.create({
+          data: {
+            studentId: student.id,
+            billingId: billing.id,
+            type: 'charge',
+            amount: amountToCharge,
+            description: `Charge for ${billing.title}`,
+            balanceBefore,
+            balanceAfter,
+            createdById: authUser.id,
+          },
+        })
+
+        if (student.userId) {
+          await db.notification.create({
+            data: {
+              userId: student.userId,
+              title: 'New Billing Assigned',
+              message: `You have been assigned: ${billing.title} - ${amountToCharge.toLocaleString('en-PH', { style: 'currency', currency: 'PHP' })}`,
+              type: 'balance_updated',
+              link: `/student/billing/${billing.id}`,
+            },
+          })
+        }
+
+        assignResults.push({ studentId: student.id, assignmentId: assignment.id, amount: amountToCharge })
+      }
+    }
+
     await db.auditLog.create({
       data: {
         userId: authUser.id,

@@ -8,6 +8,7 @@ import StudentLayout from '@/components/layout/StudentLayout'
 import DashboardView from '@/views/admin/DashboardView'
 import StudentsView from '@/views/admin/StudentsView'
 import BillingsView from '@/views/admin/BillingsView'
+import TransactionsView from '@/views/admin/TransactionsView'
 import ReceiptsView from '@/views/admin/ReceiptsView'
 import PaymentsView from '@/views/admin/PaymentsView'
 import ReportsView from '@/views/admin/ReportsView'
@@ -26,6 +27,8 @@ function AdminViewRouter({ view }: { view: string }) {
       return <StudentsView />
     case 'billings':
       return <BillingsView />
+    case 'transactions':
+      return <TransactionsView />
     case 'receipts':
       return <ReceiptsView />
     case 'payments':

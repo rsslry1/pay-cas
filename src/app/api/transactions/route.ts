@@ -9,14 +9,23 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const studentId = searchParams.get('studentId')
     const type = searchParams.get('type')
+    const search = searchParams.get('search')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
 
     const where: any = {}
     if (studentId) where.studentId = studentId
     if (type) where.type = type
+    if (search) {
+      where.OR = [
+        { description: { contains: search } },
+        { student: { firstName: { contains: search } } },
+        { student: { lastName: { contains: search } } },
+        { student: { studentId: { contains: search } } },
+        { billing: { title: { contains: search } } },
+      ]
+    }
 
-    // If user is a student, only show their transactions
     if (user.role === 'student' && user.studentProfile) {
       where.studentId = user.studentProfile.id
     }
@@ -76,7 +85,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Student not found' }, { status: 404 })
     }
 
-    // Calculate balance
+    const normalizedAmount =
+      type === 'adjustment' ? Number(amount) : Math.abs(Number(amount))
+
+    if (Number.isNaN(normalizedAmount) || normalizedAmount === 0) {
+      return NextResponse.json({ error: 'Amount must be a valid non-zero number' }, { status: 400 })
+    }
+
     const lastTransaction = await db.transaction.findFirst({
       where: { studentId },
       orderBy: { createdAt: 'desc' },
@@ -86,11 +101,11 @@ export async function POST(request: NextRequest) {
     let balanceAfter: number
 
     if (type === 'charge') {
-      balanceAfter = balanceBefore + Math.abs(amount)
+      balanceAfter = balanceBefore + normalizedAmount
     } else if (type === 'payment') {
-      balanceAfter = balanceBefore - Math.abs(amount)
+      balanceAfter = balanceBefore - normalizedAmount
     } else {
-      balanceAfter = balanceBefore + amount // adjustment can be positive or negative
+      balanceAfter = balanceBefore + normalizedAmount
     }
 
     const transaction = await db.transaction.create({
@@ -98,7 +113,7 @@ export async function POST(request: NextRequest) {
         studentId,
         billingId: billingId || null,
         type,
-        amount: Math.abs(amount),
+        amount: normalizedAmount,
         description: description || null,
         balanceBefore,
         balanceAfter,
@@ -113,7 +128,20 @@ export async function POST(request: NextRequest) {
       },
     })
 
-    // Update billing assignment status if applicable
+    if (billingId && type === 'charge') {
+      const assignment = await db.billingAssignment.findUnique({
+        where: {
+          billingId_studentId: { billingId, studentId },
+        },
+      })
+
+      if (!assignment) {
+        await db.billingAssignment.create({
+          data: { billingId, studentId },
+        })
+      }
+    }
+
     if (billingId && type === 'payment') {
       const assignment = await db.billingAssignment.findUnique({
         where: {
@@ -122,7 +150,6 @@ export async function POST(request: NextRequest) {
       })
 
       if (assignment) {
-        // Calculate total payments for this billing
         const payments = await db.transaction.findMany({
           where: { studentId, billingId, type: 'payment' },
         })
@@ -147,12 +174,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Notification
     await db.notification.create({
       data: {
         userId: student.userId,
         title: type === 'charge' ? 'New Charge' : type === 'payment' ? 'Payment Recorded' : 'Balance Adjustment',
-        message: `${type === 'charge' ? 'Charge' : type === 'payment' ? 'Payment' : 'Adjustment'} of ₱${Math.abs(amount).toLocaleString()} has been recorded.`,
+        message: `${type === 'charge' ? 'Charge' : type === 'payment' ? 'Payment' : 'Adjustment'} of PHP ${Math.abs(normalizedAmount).toLocaleString()} has been recorded.`,
         type: 'balance_updated',
       },
     })
@@ -163,7 +189,7 @@ export async function POST(request: NextRequest) {
         action: 'create',
         entity: 'transaction',
         entityId: transaction.id,
-        details: JSON.stringify({ studentId, type, amount, balanceBefore, balanceAfter }),
+        details: JSON.stringify({ studentId, type, amount: normalizedAmount, balanceBefore, balanceAfter }),
       },
     })
 

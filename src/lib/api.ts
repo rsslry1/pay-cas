@@ -33,6 +33,11 @@ export const students = {
     apiFetch(`/api/students/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     apiFetch(`/api/students/${id}`, { method: 'DELETE' }),
+  hardDelete: (id: string, data: any) =>
+    apiFetch(`/api/students/${id}/hard-delete`, {
+      method: 'DELETE',
+      body: JSON.stringify(data),
+    }),
   ledger: (id: string) =>
     apiFetch(`/api/students/${id}/ledger`),
   balance: (id: string) =>
@@ -95,6 +100,18 @@ export const payments = {
     apiFetch(`/api/payments?${new URLSearchParams(params || {})}`),
   hardDelete: (id: string, data: any) =>
     apiFetch(`/api/payments/${id}/hard-delete`, {
+      method: 'DELETE',
+      body: JSON.stringify(data),
+    }),
+}
+
+export const transactions = {
+  list: (params?: Record<string, string>) =>
+    apiFetch(`/api/transactions?${new URLSearchParams(params || {})}`),
+  create: (data: any) =>
+    apiFetch('/api/transactions', { method: 'POST', body: JSON.stringify(data) }),
+  hardDelete: (id: string, data: any) =>
+    apiFetch(`/api/transactions/${id}/hard-delete`, {
       method: 'DELETE',
       body: JSON.stringify(data),
     }),

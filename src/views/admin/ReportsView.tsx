@@ -133,11 +133,19 @@ export default function ReportsView() {
   }, [filterCourse, filterYear, filterBilling])
 
   useEffect(() => {
-    loadSummary()
+    const timer = window.setTimeout(() => {
+      void loadSummary()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [loadSummary])
 
   useEffect(() => {
-    loadUnpaid()
+    const timer = window.setTimeout(() => {
+      void loadUnpaid()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
   }, [loadUnpaid])
 
   useAutoRefresh(loadSummary)

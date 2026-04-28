@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useAppStore } from '@/store'
-import { receipts, billings } from '@/lib/api'
+import { receipts, billings, students } from '@/lib/api'
 import {
   Camera,
   Upload,
@@ -43,14 +43,18 @@ interface BillingOption {
   }
 }
 
+interface BalanceData {
+  balance: number
+}
+
 export default function StudentUploadView() {
   const { currentUser } = useAppStore()
   const studentId = currentUser?.studentProfile?.id
 
   const [assignments, setAssignments] = useState<BillingOption[]>([])
   const [loadingBillings, setLoadingBillings] = useState(true)
-
-  const [selectedBilling, setSelectedBilling] = useState('')
+  const [balanceData, setBalanceData] = useState<BalanceData | null>(null)
+  const [loadingBalance, setLoadingBalance] = useState(true)
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [base64Image, setBase64Image] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
@@ -60,12 +64,7 @@ export default function StudentUploadView() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const dropZoneRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!studentId) return
-    loadBillings()
-  }, [studentId])
-
-  const loadBillings = async () => {
+  const loadBillings = useCallback(async () => {
     if (!studentId) return
     setLoadingBillings(true)
     try {
@@ -80,9 +79,36 @@ export default function StudentUploadView() {
     } finally {
       setLoadingBillings(false)
     }
-  }
+  }, [studentId])
 
-  useAutoRefresh(loadBillings, { enabled: Boolean(studentId) })
+  const loadBalance = useCallback(async () => {
+    if (!studentId) return
+    setLoadingBalance(true)
+    try {
+      const data = await students.balance(studentId)
+      setBalanceData({
+        balance: data.balance || 0,
+      })
+    } catch {
+      toast.error('Failed to load balance')
+    } finally {
+      setLoadingBalance(false)
+    }
+  }, [studentId])
+
+  const loadData = useCallback(async () => {
+    await Promise.all([loadBillings(), loadBalance()])
+  }, [loadBalance, loadBillings])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadData()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [loadData])
+
+  useAutoRefresh(loadData, { enabled: Boolean(studentId) })
 
   const handleFileSelect = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -142,8 +168,8 @@ export default function StudentUploadView() {
       toast.error('Please upload a receipt image')
       return
     }
-    if (!selectedBilling) {
-      toast.error('Please select a billing')
+    if ((balanceData?.balance || 0) <= 0) {
+      toast.error('No outstanding balance to pay')
       return
     }
 
@@ -152,7 +178,6 @@ export default function StudentUploadView() {
       await receipts.upload({
         studentId,
         imageUrl: base64Image,
-        billingAssignmentId: selectedBilling,
       })
       toast.success('Receipt uploaded successfully!')
       setSubmitted(true)
@@ -166,7 +191,6 @@ export default function StudentUploadView() {
   const resetForm = () => {
     setImagePreview(null)
     setBase64Image(null)
-    setSelectedBilling('')
     setNotes('')
     setSubmitted(false)
     if (fileInputRef.current) fileInputRef.current.value = ''
@@ -214,7 +238,7 @@ export default function StudentUploadView() {
     <div className="space-y-5">
       <div>
         <h1 className="text-xl font-bold text-gray-900">Upload Receipt</h1>
-        <p className="text-sm text-gray-500">Submit a payment receipt for review</p>
+        <p className="text-sm text-gray-500">Submit a payment receipt for your total outstanding balance</p>
       </div>
 
       {/* Image Upload Area */}
@@ -276,37 +300,31 @@ export default function StudentUploadView() {
         />
       </div>
 
-      {/* Billing Selection */}
+      {/* Total Balance */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium text-gray-700">Select Billing *</Label>
-        {loadingBillings ? (
-          <Skeleton className="h-11 w-full rounded-lg" />
-        ) : assignments.length === 0 ? (
+        <Label className="text-sm font-medium text-gray-700">Total Amount to Pay</Label>
+        {loadingBalance || loadingBillings ? (
+          <Skeleton className="h-24 w-full rounded-xl" />
+        ) : assignments.length === 0 || (balanceData?.balance || 0) <= 0 ? (
           <div className="flex items-center gap-2 p-4 rounded-lg bg-gray-50 text-sm text-gray-500">
             <AlertCircle className="w-4 h-4 text-amber-500 shrink-0" />
-            No pending billings to attach this receipt to.
+            No outstanding balance to pay right now.
           </div>
         ) : (
-          <Select value={selectedBilling} onValueChange={setSelectedBilling}>
-            <SelectTrigger className="min-h-[44px]">
-              <SelectValue placeholder="Select a billing..." />
-            </SelectTrigger>
-            <SelectContent>
-              {assignments.map((a) => (
-                <SelectItem key={a.id} value={a.id}>
-                  <div className="flex items-center justify-between gap-4 w-full">
-                    <span className="truncate">{a.billing.title}</span>
-                    <span className="text-xs text-gray-400 shrink-0">
-                      {new Intl.NumberFormat('en-PH', {
-                        style: 'currency',
-                        currency: 'PHP',
-                      }).format(a.billing.amount)}
-                    </span>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-emerald-700/80">
+              Outstanding Balance
+            </p>
+            <p className="mt-1 text-2xl font-bold text-emerald-800">
+              {new Intl.NumberFormat('en-PH', {
+                style: 'currency',
+                currency: 'PHP',
+              }).format(balanceData?.balance || 0)}
+            </p>
+            <p className="mt-2 text-xs text-emerald-700/80">
+              Your receipt will be submitted toward your full account balance instead of a single billing item.
+            </p>
+          </div>
         )}
       </div>
 
@@ -328,7 +346,7 @@ export default function StudentUploadView() {
       <Button
         className="w-full bg-emerald-600 hover:bg-emerald-700 text-white min-h-[48px] text-base font-semibold"
         onClick={handleSubmit}
-        disabled={submitting || !base64Image || !selectedBilling || !studentId}
+        disabled={submitting || !base64Image || !studentId || loadingBalance || (balanceData?.balance || 0) <= 0}
       >
         {submitting ? (
           <>
@@ -352,7 +370,7 @@ export default function StudentUploadView() {
               <p className="font-medium text-blue-700">How it works</p>
               <ol className="list-decimal list-inside space-y-0.5">
                 <li>Upload a clear photo of your payment receipt</li>
-                <li>Select which billing this payment is for</li>
+                <li>Your receipt is applied to your total outstanding balance</li>
                 <li>Submit and wait for admin to review</li>
                 <li>Once approved, your balance will be updated</li>
               </ol>

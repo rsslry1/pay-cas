@@ -4,7 +4,7 @@ import { requireAuth } from '@/lib/auth'
 
 export async function GET() {
   try {
-    const user = await requireAuth('staff')
+    await requireAuth('staff')
 
     const [
       totalStudents,
@@ -42,37 +42,46 @@ export async function GET() {
     const pendingAssignments = await db.billingAssignment.count({ where: { status: 'pending' } })
     const paidAssignments = await db.billingAssignment.count({ where: { status: 'fully_paid' } })
 
-    // Students by course
-    const courseStats = await db.studentProfile.groupBy({
-      by: ['course'],
+    const activeStudentsWithCourse = await db.studentProfile.findMany({
       where: { status: 'active', course: { not: null } },
-      _count: true,
+      select: { id: true, course: true },
     })
 
-    // Students by year
-    const yearStats = await db.studentProfile.groupBy({
-      by: ['year'],
-      where: { status: 'active', year: { not: null } },
-      _count: true,
-    })
+    const collectionsByCourseMap = new Map<string, number>()
+    for (const student of activeStudentsWithCourse) {
+      const studentPayments = payments
+        .filter((payment) => payment.studentId === student.id)
+        .reduce((sum, payment) => sum + payment.amount, 0)
+
+      const courseKey = student.course || 'Unassigned'
+      collectionsByCourseMap.set(
+        courseKey,
+        (collectionsByCourseMap.get(courseKey) || 0) + studentPayments
+      )
+    }
+
+    const collectionsByCourse = Array.from(collectionsByCourseMap.entries()).map(
+      ([course, total]) => ({
+        course,
+        total,
+      })
+    )
 
     return NextResponse.json({
-      stats: {
-        totalStudents,
-        activeStudents,
-        totalBillings,
-        activeBillings,
-        pendingReceipts,
-        totalPayments,
-        totalCharges,
-        totalCollected,
-        outstandingBalance,
-        pendingAssignments,
-        paidAssignments,
-      },
+      totalStudents,
+      activeStudents,
+      totalBillings,
+      activeBillings,
+      pendingReceipts,
+      totalPayments,
+      totalCharges,
+      totalCollections: totalCollected,
+      totalCollected,
+      outstandingBalance,
+      pendingAssignments,
+      paidAssignments,
       recentTransactions,
-      courseStats,
-      yearStats,
+      collectionsByCourse,
     })
   } catch (error: any) {
     if (error.message === 'Unauthorized' || error.message === 'Insufficient permissions') {

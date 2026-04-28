@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
-import { billings as billingsApi, students as studentsApi, feeCategories as fcApi, academicYears as ayApi } from '@/lib/api'
+import { billings as billingsApi, feeCategories as fcApi, academicYears as ayApi } from '@/lib/api'
 import {
   Plus,
   Search,
@@ -10,18 +10,16 @@ import {
   Pencil,
   Trash2,
   Power,
-  Users,
   ChevronLeft,
   ChevronRight,
   FileText,
-  Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import {
   Dialog,
   DialogContent,
@@ -61,7 +59,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'sonner'
@@ -80,16 +77,6 @@ interface Billing {
   status: 'active' | 'inactive'
   assignedCount?: number
   createdAt: string
-}
-
-interface StudentBasic {
-  id: string
-  studentId: string
-  firstName: string
-  lastName: string
-  course: string
-  year: number
-  status: string
 }
 
 interface FeeCategory {
@@ -114,7 +101,6 @@ export default function BillingsView() {
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [showHardDeleteDialog, setShowHardDeleteDialog] = useState(false)
-  const [showAssignDialog, setShowAssignDialog] = useState(false)
   const [showAssignmentsDialog, setShowAssignmentsDialog] = useState(false)
   const [selectedBilling, setSelectedBilling] = useState<Billing | null>(null)
   const [assignments, setAssignments] = useState<any[]>([])
@@ -293,9 +279,6 @@ export default function BillingsView() {
                             <DropdownMenuItem onClick={() => viewAssignments(b)}>
                               <Eye className="w-4 h-4 mr-2" /> View Assignments
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => { setSelectedBilling(b); setShowAssignDialog(true) }}>
-                              <Users className="w-4 h-4 mr-2" /> Assign to Students
-                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => handleToggle(b)}>
                               <Power className="w-4 h-4 mr-2" /> {b.status === 'active' ? 'Deactivate' : 'Activate'}
                             </DropdownMenuItem>
@@ -394,14 +377,6 @@ export default function BillingsView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Assign Dialog */}
-      <AssignDialog
-        open={showAssignDialog}
-        onOpenChange={setShowAssignDialog}
-        billing={selectedBilling}
-        onSave={loadBillings}
-      />
-
       {/* View Assignments Dialog */}
       <Dialog open={showAssignmentsDialog} onOpenChange={setShowAssignmentsDialog}>
         <DialogContent className="sm:max-w-lg max-h-[70vh]">
@@ -493,7 +468,11 @@ function BillingFormDialog({
     }
     setSaving(true)
     try {
-      const payload = { ...form, amount: parseFloat(form.amount) }
+      const payload = {
+        ...form,
+        amount: parseFloat(form.amount),
+        ...(billing ? {} : { assignToAll: true }),
+      }
       if (billing) {
         await billingsApi.update(billing.id, payload)
         toast.success('Billing updated')
@@ -538,6 +517,11 @@ function BillingFormDialog({
               <Input type="date" value={form.dueDate} onChange={(e) => setForm({ ...form, dueDate: e.target.value })} />
             </div>
           </div>
+          {!billing && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+              This billing will be assigned automatically to all active students. Each student will be charged the full billing amount.
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Fee Category</Label>
@@ -569,132 +553,6 @@ function BillingFormDialog({
             </Button>
           </DialogFooter>
         </form>
-      </DialogContent>
-    </Dialog>
-  )
-}
-
-function AssignDialog({
-  open,
-  onOpenChange,
-  billing,
-  onSave,
-}: {
-  open: boolean
-  onOpenChange: (v: boolean) => void
-  billing: Billing | null
-  onSave: () => void
-}) {
-  const [students, setStudents] = useState<StudentBasic[]>([])
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
-  const [search, setSearch] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    if (open) {
-      setSearch('')
-      setSelectedIds(new Set())
-      loadStudents()
-    }
-  }, [open])
-
-  const loadStudents = async (s?: string) => {
-    setLoading(true)
-    try {
-      const params: Record<string, string> = { status: 'active', limit: '100' }
-      if (s) params.search = s
-      const data = await studentsApi.list(params)
-      setStudents(data.students || data.data || [])
-    } catch {
-      // silent
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  const handleSearch = (value: string) => {
-    setSearch(value)
-    const timer = setTimeout(() => loadStudents(value), 300)
-    return () => clearTimeout(timer)
-  }
-
-  const toggleStudent = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  const handleAssign = async () => {
-    if (!billing || selectedIds.size === 0) {
-      toast.error('Select at least one student')
-      return
-    }
-    setSaving(true)
-    try {
-      await billingsApi.assign({
-        billingId: billing.id,
-        studentIds: Array.from(selectedIds),
-      })
-      toast.success(`Assigned to ${selectedIds.size} student(s)`)
-      onOpenChange(false)
-      onSave()
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to assign')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg max-h-[80vh]">
-        <DialogHeader>
-          <DialogTitle>Assign Students</DialogTitle>
-          <DialogDescription>
-            Assign &quot;{billing?.title}&quot; to students. {selectedIds.size} student{selectedIds.size !== 1 ? 's' : ''} selected.
-          </DialogDescription>
-        </DialogHeader>
-        <div className="relative mb-3">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <Input placeholder="Search students..." value={search} onChange={(e) => handleSearch(e.target.value)} className="pl-9" />
-        </div>
-        <ScrollArea className="max-h-[300px]">
-          {loading ? (
-            <div className="space-y-2 p-2">
-              {Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-10 w-full" />)}
-            </div>
-          ) : students.length === 0 ? (
-            <p className="text-center py-8 text-gray-400">No active students found</p>
-          ) : (
-            <div className="space-y-1">
-              {students.map((s) => (
-                <label
-                  key={s.id}
-                  className={`flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors ${
-                    selectedIds.has(s.id) ? 'bg-emerald-50 border border-emerald-200' : 'hover:bg-gray-50'
-                  }`}
-                >
-                  <Checkbox checked={selectedIds.has(s.id)} onCheckedChange={() => toggleStudent(s.id)} />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{s.lastName}, {s.firstName}</p>
-                    <p className="text-xs text-gray-400">{s.studentId} &middot; {s.course}-{s.year}</p>
-                  </div>
-                  {selectedIds.has(s.id) && <Check className="w-4 h-4 text-emerald-600" />}
-                </label>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button onClick={handleAssign} disabled={saving || selectedIds.size === 0} className="bg-emerald-600 hover:bg-emerald-700 text-white">
-            {saving ? 'Assigning...' : `Assign to ${selectedIds.size} Student(s)`}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

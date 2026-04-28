@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { dashboard as dashboardApi } from '@/lib/api'
 import { useAppStore } from '@/store'
 import {
@@ -51,20 +51,32 @@ export default function DashboardView() {
   const [stats, setStats] = useState<StatsData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    loadStats()
-  }, [])
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
       const data = await dashboardApi.stats()
-      setStats(data)
+      setStats(data.stats ? {
+        ...data.stats,
+        recentTransactions: data.recentTransactions || [],
+        collectionsByCourse: data.collectionsByCourse || [],
+        totalCollections: data.stats.totalCollections ?? data.stats.totalCollected ?? 0,
+      } : {
+        ...data,
+        totalCollections: data.totalCollections ?? data.totalCollected ?? 0,
+      })
     } catch {
       // silent
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      void loadStats()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [loadStats])
 
   useAutoRefresh(loadStats)
 

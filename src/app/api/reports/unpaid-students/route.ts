@@ -11,41 +11,73 @@ export async function GET(request: NextRequest) {
     const year = searchParams.get('year')
     const billingId = searchParams.get('billingId')
 
-    const where: any = {}
-
-    if (billingId) {
-      where.billingId = billingId
-    }
-
-    where.status = { in: ['pending', 'partially_paid'] }
-
-    const unpaidAssignments = await db.billingAssignment.findMany({
-      where,
-      include: {
-        student: {
-          include: {
-            user: { select: { email: true } },
-          },
-        },
-        billing: {
-          include: { feeCategory: true },
+    const studentWhere: any = {
+      status: 'active',
+      billingAssignments: {
+        some: {
+          status: { in: ['pending', 'partially_paid'] },
+          ...(billingId ? { billingId } : {}),
         },
       },
-      orderBy: [{ student: { lastName: 'asc' } }],
+    }
+
+    if (course) studentWhere.course = course
+    if (year) studentWhere.year = parseInt(year)
+
+    const matchingStudents = await db.studentProfile.findMany({
+      where: studentWhere,
+      include: {
+        billingAssignments: {
+          where: {
+            status: { in: ['pending', 'partially_paid'] },
+            ...(billingId ? { billingId } : {}),
+          },
+          include: {
+            billing: true,
+          },
+        },
+      },
+      orderBy: [{ lastName: 'asc' }],
     })
 
-    // Filter by course/year if provided
-    let filtered = unpaidAssignments
-    if (course) {
-      filtered = filtered.filter((a) => a.student.course === course)
-    }
-    if (year) {
-      filtered = filtered.filter((a) => a.student.year === parseInt(year))
-    }
+    const unpaidStudents = await Promise.all(
+      matchingStudents.map(async (student) => {
+        const transactions = await db.transaction.findMany({
+          where: {
+            studentId: student.id,
+            ...(billingId ? { billingId } : {}),
+          },
+          select: { type: true, amount: true },
+        })
+
+        const charges = transactions
+          .filter((t) => t.type === 'charge')
+          .reduce((sum, t) => sum + t.amount, 0)
+        const payments = transactions
+          .filter((t) => t.type === 'payment')
+          .reduce((sum, t) => sum + t.amount, 0)
+        const adjustments = transactions
+          .filter((t) => t.type === 'adjustment')
+          .reduce((sum, t) => sum + t.amount, 0)
+
+        return {
+          id: student.id,
+          studentId: student.studentId,
+          name: `${student.firstName} ${student.lastName}`,
+          course: student.course || '-',
+          year: student.year || 0,
+          outstandingBalance: charges - payments + adjustments,
+          billingTitle:
+            billingId && student.billingAssignments.length > 0
+              ? student.billingAssignments[0].billing.title
+              : undefined,
+        }
+      })
+    )
 
     return NextResponse.json({
-      unpaidStudents: filtered,
-      total: filtered.length,
+      unpaidStudents: unpaidStudents.filter((student) => student.outstandingBalance > 0),
+      total: unpaidStudents.filter((student) => student.outstandingBalance > 0).length,
     })
   } catch (error: any) {
     if (error.message === 'Unauthorized' || error.message === 'Insufficient permissions') {

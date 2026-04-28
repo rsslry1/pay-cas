@@ -14,12 +14,14 @@ import {
   ChevronRight,
   Users,
   X,
+  Upload,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import {
   Dialog,
@@ -83,6 +85,8 @@ interface Student {
 const courseOptions = ['BSIT', 'BSCS', 'BSIS', 'BSECE', 'BSME', 'BSCE', 'BSCpE']
 const yearOptions = ['1', '2', '3', '4']
 const sectionOptions = ['A', 'B', 'C', 'D']
+const studentCsvHeaders = ['firstName', 'middleName', 'lastName', 'email', 'password', 'course', 'year', 'section']
+const studentCsvExample = 'firstName,middleName,lastName,email,password,course,year,section\nJuan,Santos,Cruz,juan.cruz@school.edu,student123,BSIT,1,A'
 
 export default function StudentsView() {
   const [students, setStudents] = useState<Student[]>([])
@@ -96,8 +100,11 @@ export default function StudentsView() {
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showHardDeleteDialog, setShowHardDeleteDialog] = useState(false)
   const [showDetailDialog, setShowDetailDialog] = useState(false)
+  const [showCsvDialog, setShowCsvDialog] = useState(false)
   const [selectedStudent, setSelectedStudent] = useState<Student | null>(null)
+  const [hardDeletePassword, setHardDeletePassword] = useState('')
   const [detailData, setDetailData] = useState<any>(null)
   const [saving, setSaving] = useState(false)
   const pageSize = 10
@@ -159,6 +166,20 @@ export default function StudentsView() {
     }
   }
 
+  const handleHardDelete = async () => {
+    if (!selectedStudent) return
+    try {
+      await studentsApi.hardDelete(selectedStudent.id, { adminPassword: hardDeletePassword })
+      toast.success('Student deleted permanently')
+      setShowHardDeleteDialog(false)
+      setSelectedStudent(null)
+      setHardDeletePassword('')
+      loadStudents()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete student permanently')
+    }
+  }
+
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount)
 
@@ -214,6 +235,10 @@ export default function StudentsView() {
         <Button className="bg-emerald-600 hover:bg-emerald-700 text-white" onClick={() => setShowAddDialog(true)}>
           <Plus className="w-4 h-4 mr-2" />
           Add Student
+        </Button>
+        <Button variant="outline" onClick={() => setShowCsvDialog(true)}>
+          <Upload className="w-4 h-4 mr-2" />
+          Upload CSV
         </Button>
       </div>
 
@@ -287,9 +312,22 @@ export default function StudentsView() {
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               className="text-red-600"
-                              onClick={() => { setSelectedStudent(s); setShowDeleteDialog(true) }}
+                              onClick={() => {
+                                setSelectedStudent(s)
+                                setShowDeleteDialog(true)
+                              }}
                             >
                               <Trash2 className="w-4 h-4 mr-2" /> Deactivate
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="text-red-700"
+                              onClick={() => {
+                                setSelectedStudent(s)
+                                setHardDeletePassword('')
+                                setShowHardDeleteDialog(true)
+                              }}
+                            >
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete Permanently
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -329,6 +367,14 @@ export default function StudentsView() {
         student={null}
       />
 
+      {showCsvDialog && (
+        <StudentCsvUploadDialog
+          open={showCsvDialog}
+          onOpenChange={setShowCsvDialog}
+          onSave={loadStudents}
+        />
+      )}
+
       {/* Edit Student Dialog */}
       <StudentFormDialog
         open={showEditDialog}
@@ -338,7 +384,9 @@ export default function StudentsView() {
       />
 
       {/* Delete Confirmation */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      <AlertDialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open)
+      }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Deactivate Student</AlertDialogTitle>
@@ -353,6 +401,37 @@ export default function StudentsView() {
         </AlertDialogContent>
       </AlertDialog>
 
+      <AlertDialog open={showHardDeleteDialog} onOpenChange={(open) => {
+        setShowHardDeleteDialog(open)
+        if (!open) {
+          setHardDeletePassword('')
+        }
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Student Permanently</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently delete {selectedStudent?.firstName} {selectedStudent?.lastName} and related student records. Admin password override is required.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label>Admin Password</Label>
+            <Input
+              type="password"
+              value={hardDeletePassword}
+              onChange={(e) => setHardDeletePassword(e.target.value)}
+              placeholder="Enter admin password"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleHardDelete} className="bg-red-700 hover:bg-red-800">
+              Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Student Detail Dialog */}
       <StudentDetailDialog
         open={showDetailDialog}
@@ -363,6 +442,209 @@ export default function StudentsView() {
       />
     </div>
   )
+}
+
+function StudentCsvUploadDialog({
+  open,
+  onOpenChange,
+  onSave,
+}: {
+  open: boolean
+  onOpenChange: (v: boolean) => void
+  onSave: () => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [csvText, setCsvText] = useState(studentCsvExample)
+  const [fileName, setFileName] = useState('')
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setFileName(file.name)
+    try {
+      const text = await file.text()
+      setCsvText(text)
+    } catch {
+      toast.error('Failed to read CSV file')
+    }
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const trimmed = csvText.trim()
+    if (!trimmed) {
+      toast.error('Please upload or paste CSV content')
+      return
+    }
+
+    let rows: Record<string, string>[]
+    try {
+      rows = parseStudentCsv(trimmed)
+    } catch (error: any) {
+      toast.error(error.message || 'Invalid CSV format')
+      return
+    }
+
+    if (rows.length === 0) {
+      toast.error('No student rows found in CSV')
+      return
+    }
+
+    const invalidRow = rows.findIndex((row) => !row.firstName || !row.lastName || !row.course || !row.year || !row.section)
+    if (invalidRow !== -1) {
+      toast.error(`Row ${invalidRow + 2} is missing required fields`)
+      return
+    }
+
+    setSaving(true)
+    let successCount = 0
+    const failures: string[] = []
+
+    for (let index = 0; index < rows.length; index += 1) {
+      const row = rows[index]
+      try {
+        await studentsApi.create({
+          firstName: row.firstName,
+          middleName: row.middleName || '',
+          lastName: row.lastName,
+          email: row.email || '',
+          password: row.password || '',
+          course: row.course,
+          year: parseInt(row.year, 10),
+          section: row.section,
+        })
+        successCount += 1
+      } catch (error: any) {
+        failures.push(`Row ${index + 2}: ${error.message || 'Failed to create student'}`)
+      }
+    }
+
+    if (successCount > 0) {
+      toast.success(`Imported ${successCount} student${successCount !== 1 ? 's' : ''}`)
+      onSave()
+    }
+
+    if (failures.length > 0) {
+      toast.error(failures[0])
+    }
+
+    if (successCount > 0 && failures.length === 0) {
+      onOpenChange(false)
+    }
+
+    setSaving(false)
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>Upload Students CSV</DialogTitle>
+          <DialogDescription>
+            Import multiple students using the same fields as the add student form.
+          </DialogDescription>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="rounded-lg border bg-gray-50 p-4 text-sm text-gray-700 space-y-2">
+            <p className="font-medium text-gray-900">CSV format</p>
+            <p>Required columns: `firstName`, `lastName`, `course`, `year`, `section`</p>
+            <p>Optional columns: `middleName`, `email`, `password`</p>
+            <p>Header order to use:</p>
+            <code className="block rounded bg-white px-3 py-2 text-xs text-gray-700">
+              {studentCsvHeaders.join(',')}
+            </code>
+          </div>
+
+          <div className="space-y-2">
+            <Label>Upload CSV File</Label>
+            <Input type="file" accept=".csv,text/csv" onChange={handleFileChange} />
+            {fileName && <p className="text-xs text-gray-500">{fileName}</p>}
+          </div>
+
+          <div className="space-y-2">
+            <Label>CSV Content</Label>
+            <Textarea
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              rows={12}
+              className="font-mono text-xs"
+            />
+          </div>
+
+          <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+            <p className="font-medium">Example row</p>
+            <code className="mt-2 block whitespace-pre-wrap break-all text-xs">{studentCsvExample}</code>
+          </div>
+
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+            <Button type="submit" disabled={saving} className="bg-emerald-600 hover:bg-emerald-700 text-white">
+              {saving ? 'Importing...' : 'Import Students'}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function parseStudentCsv(csv: string) {
+  const lines = csv
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+
+  if (lines.length < 2) {
+    throw new Error('CSV must include a header row and at least one student row')
+  }
+
+  const headers = parseCsvLine(lines[0]).map((header) => header.trim())
+  const missingHeaders = ['firstName', 'lastName', 'course', 'year', 'section'].filter(
+    (requiredHeader) => !headers.includes(requiredHeader)
+  )
+
+  if (missingHeaders.length > 0) {
+    throw new Error(`Missing required header(s): ${missingHeaders.join(', ')}`)
+  }
+
+  return lines.slice(1).map((line) => {
+    const values = parseCsvLine(line)
+    const row: Record<string, string> = {}
+
+    headers.forEach((header, index) => {
+      row[header] = (values[index] || '').trim()
+    })
+
+    return row
+  })
+}
+
+function parseCsvLine(line: string) {
+  const values: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index]
+    const nextChar = line[index + 1]
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"'
+        index += 1
+      } else {
+        inQuotes = !inQuotes
+      }
+    } else if (char === ',' && !inQuotes) {
+      values.push(current)
+      current = ''
+    } else {
+      current += char
+    }
+  }
+
+  values.push(current)
+  return values
 }
 
 function StudentFormDialog({
