@@ -8,6 +8,9 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url)
     const studentIdFilter = searchParams.get('studentId')
+    const search = searchParams.get('search')
+    const dateFrom = searchParams.get('dateFrom')
+    const dateTo = searchParams.get('dateTo')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
 
@@ -18,6 +21,22 @@ export async function GET(request: NextRequest) {
       where.studentId = user.studentProfile.id
     } else if (studentIdFilter) {
       where.studentId = studentIdFilter
+    }
+    if (search) {
+      where.OR = [
+        { student: { firstName: { contains: search } } },
+        { student: { lastName: { contains: search } } },
+        { student: { studentId: { contains: search } } },
+      ]
+    }
+    if (dateFrom || dateTo) {
+      where.processedAt = {}
+      if (dateFrom) where.processedAt.gte = new Date(dateFrom)
+      if (dateTo) {
+        const endDate = new Date(dateTo)
+        endDate.setHours(23, 59, 59, 999)
+        where.processedAt.lte = endDate
+      }
     }
 
     const [payments, total] = await Promise.all([

@@ -9,6 +9,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const status = searchParams.get('status')
     const studentIdFilter = searchParams.get('studentId')
+    const search = searchParams.get('search')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
 
@@ -22,11 +23,22 @@ export async function GET(request: NextRequest) {
     }
 
     if (status) where.status = status
+    if (search) {
+      where.OR = [
+        { student: { firstName: { contains: search } } },
+        { student: { lastName: { contains: search } } },
+        { student: { studentId: { contains: search } } },
+        { student: { user: { email: { contains: search } } } },
+      ]
+    }
 
     const [receipts, total] = await Promise.all([
       db.receipt.findMany({
         where,
         include: {
+          billing: {
+            select: { id: true, title: true },
+          },
           student: {
             select: {
               id: true,
@@ -71,7 +83,7 @@ export async function POST(request: NextRequest) {
     const user = await requireAuth()
 
     const body = await request.json()
-    const { studentId, imageUrl, imageStorageKey } = body
+    const { studentId, imageUrl, imageStorageKey, billingAssignmentId } = body
 
     if (!studentId || !imageUrl) {
       return NextResponse.json({ error: 'studentId and imageUrl are required' }, { status: 400 })
@@ -84,13 +96,30 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let billingId: string | null = null
+    if (billingAssignmentId) {
+      const assignment = await db.billingAssignment.findUnique({
+        where: { id: billingAssignmentId },
+      })
+
+      if (!assignment || assignment.studentId !== studentId) {
+        return NextResponse.json({ error: 'Invalid billing assignment' }, { status: 400 })
+      }
+
+      billingId = assignment.billingId
+    }
+
     const receipt = await db.receipt.create({
       data: {
         studentId,
+        billingId,
         imageUrl,
         imageStorageKey: imageStorageKey || null,
       },
       include: {
+        billing: {
+          select: { id: true, title: true },
+        },
         student: {
           select: { id: true, firstName: true, lastName: true, studentId: true },
         },

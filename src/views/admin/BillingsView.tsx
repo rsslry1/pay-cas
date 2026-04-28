@@ -65,6 +65,7 @@ import { Checkbox } from '@/components/ui/checkbox'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface Billing {
   id: string
@@ -112,10 +113,12 @@ export default function BillingsView() {
   const [showAddDialog, setShowAddDialog] = useState(false)
   const [showEditDialog, setShowEditDialog] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [showHardDeleteDialog, setShowHardDeleteDialog] = useState(false)
   const [showAssignDialog, setShowAssignDialog] = useState(false)
   const [showAssignmentsDialog, setShowAssignmentsDialog] = useState(false)
   const [selectedBilling, setSelectedBilling] = useState<Billing | null>(null)
   const [assignments, setAssignments] = useState<any[]>([])
+  const [hardDeletePassword, setHardDeletePassword] = useState('')
   const pageSize = 10
 
   const loadBillings = useCallback(async () => {
@@ -137,6 +140,8 @@ export default function BillingsView() {
   useEffect(() => {
     loadBillings()
   }, [loadBillings])
+
+  useAutoRefresh(loadBillings)
 
   useEffect(() => {
     setPage(1)
@@ -162,6 +167,20 @@ export default function BillingsView() {
       loadBillings()
     } catch (err: any) {
       toast.error(err.message || 'Failed to archive billing')
+    }
+  }
+
+  const handleHardDelete = async () => {
+    if (!selectedBilling) return
+    try {
+      await billingsApi.hardDelete(selectedBilling.id, hardDeletePassword ? { adminPassword: hardDeletePassword } : undefined)
+      toast.success('Billing deleted permanently')
+      setShowHardDeleteDialog(false)
+      setSelectedBilling(null)
+      setHardDeletePassword('')
+      loadBillings()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete billing')
     }
   }
 
@@ -283,8 +302,11 @@ export default function BillingsView() {
                             <DropdownMenuItem onClick={() => { setSelectedBilling(b); setShowEditDialog(true) }}>
                               <Pencil className="w-4 h-4 mr-2" /> Edit
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-red-600" onClick={() => { setSelectedBilling(b); setShowDeleteDialog(true) }}>
+                            <DropdownMenuItem className="text-amber-600" onClick={() => { setSelectedBilling(b); setShowDeleteDialog(true) }}>
                               <Trash2 className="w-4 h-4 mr-2" /> Archive
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-red-600" onClick={() => { setSelectedBilling(b); setShowHardDeleteDialog(true) }}>
+                              <Trash2 className="w-4 h-4 mr-2" /> Delete
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
@@ -339,6 +361,35 @@ export default function BillingsView() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={handleDelete} className="bg-red-600 hover:bg-red-700">Archive</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={showHardDeleteDialog} onOpenChange={(open) => {
+        setShowHardDeleteDialog(open)
+        if (!open) setHardDeletePassword('')
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Billing Permanently</AlertDialogTitle>
+            <AlertDialogDescription>
+              Permanently delete &quot;{selectedBilling?.title}&quot;? If this billing already has assigned students or transactions, enter the admin password to override the protection.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-2">
+            <Label>Admin Password Override</Label>
+            <Input
+              type="password"
+              value={hardDeletePassword}
+              onChange={(e) => setHardDeletePassword(e.target.value)}
+              placeholder="Required only for billings with dependencies"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleHardDelete} className="bg-red-600 hover:bg-red-700">
+              Delete
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
@@ -408,8 +459,14 @@ function BillingFormDialog({
 
   useEffect(() => {
     Promise.all([fcApi.list(), ayApi.list()]).then(([fc, ay]) => {
-      setFeeCategories(fc || [])
-      setAcademicYears(ay || [])
+      setFeeCategories(Array.isArray(fc) ? fc : fc?.categories || [])
+      setAcademicYears(
+        (Array.isArray(ay) ? ay : ay?.academicYears || []).map((year: any) => ({
+          id: year.id,
+          label: year.label || year.year,
+          isCurrent: Boolean(year.isCurrent),
+        }))
+      )
     }).catch(() => {})
   }, [])
 

@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from 'sonner'
 import { cn } from '@/lib/utils'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface BillingOption {
   id: string
@@ -80,6 +81,8 @@ export default function StudentUploadView() {
       setLoadingBillings(false)
     }
   }
+
+  useAutoRefresh(loadBillings, { enabled: Boolean(studentId) })
 
   const handleFileSelect = useCallback((file: File) => {
     if (!file.type.startsWith('image/')) {

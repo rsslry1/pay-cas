@@ -10,6 +10,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import { formatDistanceToNow } from 'date-fns'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 function getNotifIcon(type: string) {
   switch (type) {
@@ -32,6 +33,8 @@ export default function NotificationsPanel() {
   useEffect(() => {
     fetchNotifications()
   }, [fetchNotifications])
+
+  useAutoRefresh(fetchNotifications, { intervalMs: 10000 })
 
   const handleMarkRead = async (id: string) => {
     try {

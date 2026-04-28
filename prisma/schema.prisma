@@ -92,6 +92,7 @@ model Billing {
   feeCategory       FeeCategory?        @relation(fields: [feeCategoryId], references: [id])
   assignments       BillingAssignment[]
   transactions      Transaction[]
+  receipts          Receipt[]
 
   @@index([status])
   @@index([academicYear])
@@ -141,6 +142,7 @@ model Transaction {
 model Receipt {
   id              String   @id @default(cuid())
   studentId       String
+  billingId       String?
   imageUrl        String
   imageStorageKey String?
   submittedAt     DateTime @default(now())
@@ -152,10 +154,12 @@ model Receipt {
   updatedAt       DateTime @updatedAt
 
   student         StudentProfile @relation(fields: [studentId], references: [id])
+  billing         Billing?       @relation(fields: [billingId], references: [id])
   reviewedBy      User?          @relation("ReceiptReviewer", fields: [reviewedById], references: [id])
   payments        Payment[]
 
   @@index([studentId])
+  @@index([billingId])
   @@index([status])
   @@index([submittedAt])
 }

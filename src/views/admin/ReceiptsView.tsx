@@ -9,7 +9,7 @@ import {
   XCircle,
   Clock,
   Image as ImageIcon,
-  Filter,
+  Trash2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -29,11 +29,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface Receipt {
   id: string
   studentId: string
   studentName: string
+  studentCode?: string
   imageUrl: string
   status: 'pending' | 'approved' | 'rejected'
   amount?: number
@@ -52,9 +54,11 @@ export default function ReceiptsView() {
   const [search, setSearch] = useState('')
   const [showReviewDialog, setShowReviewDialog] = useState(false)
   const [showImageDialog, setShowImageDialog] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [selectedReceipt, setSelectedReceipt] = useState<Receipt | null>(null)
   const [reviewForm, setReviewForm] = useState({ amount: '', notes: '' })
   const [reviewing, setReviewing] = useState(false)
+  const [deletePassword, setDeletePassword] = useState('')
 
   const loadReceipts = useCallback(async () => {
     setLoading(true)
@@ -63,7 +67,30 @@ export default function ReceiptsView() {
       if (activeTab !== 'all') params.status = activeTab
       if (search) params.search = search
       const data = await receiptsApi.list(params)
-      setReceipts(data.receipts || data.data || [])
+      const rows = data.receipts || data.data || []
+      setReceipts(
+        rows.map((receipt: any) => ({
+          id: receipt.id,
+          studentId: receipt.studentId,
+          studentName:
+            receipt.studentName ||
+            [receipt.student?.firstName, receipt.student?.lastName].filter(Boolean).join(' ') ||
+            '-',
+          studentCode: receipt.student?.studentId,
+          imageUrl: receipt.imageUrl,
+          status: receipt.status,
+          amount: receipt.amount ?? receipt.payments?.[0]?.amount,
+          notes: receipt.notes,
+          adminNotes: receipt.adminNotes,
+          reviewedBy:
+            typeof receipt.reviewedBy === 'string'
+              ? receipt.reviewedBy
+              : receipt.reviewedBy?.name,
+          reviewedAt: receipt.reviewedAt,
+          createdAt: receipt.createdAt || receipt.submittedAt,
+          billingTitle: receipt.billingTitle || receipt.billing?.title,
+        }))
+      )
     } catch {
       toast.error('Failed to load receipts')
     } finally {
@@ -74,6 +101,8 @@ export default function ReceiptsView() {
   useEffect(() => {
     loadReceipts()
   }, [loadReceipts])
+
+  useAutoRefresh(loadReceipts)
 
   const openReview = (receipt: Receipt) => {
     setSelectedReceipt(receipt)
@@ -93,9 +122,9 @@ export default function ReceiptsView() {
     setReviewing(true)
     try {
       await receiptsApi.review(selectedReceipt.id, {
-        action,
-        amount: reviewForm.amount ? parseFloat(reviewForm.amount) : undefined,
-        notes: reviewForm.notes,
+        status: action === 'approve' ? 'approved' : 'rejected',
+        paymentAmount: reviewForm.amount ? parseFloat(reviewForm.amount) : undefined,
+        adminNotes: reviewForm.notes,
       })
       toast.success(`Receipt ${action}d`)
       setShowReviewDialog(false)
@@ -105,6 +134,23 @@ export default function ReceiptsView() {
       toast.error(err.message || 'Failed to review receipt')
     } finally {
       setReviewing(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!selectedReceipt) return
+    try {
+      await receiptsApi.hardDelete(
+        selectedReceipt.id,
+        deletePassword ? { adminPassword: deletePassword } : undefined
+      )
+      toast.success('Receipt deleted permanently')
+      setShowDeleteDialog(false)
+      setSelectedReceipt(null)
+      setDeletePassword('')
+      loadReceipts()
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete receipt')
     }
   }
 
@@ -197,6 +243,9 @@ export default function ReceiptsView() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <p className="font-medium text-sm truncate">{receipt.studentName}</p>
+                    {receipt.studentCode && (
+                      <p className="text-[11px] text-gray-400 font-mono mt-0.5">{receipt.studentCode}</p>
+                    )}
                     <p className="text-xs text-gray-400 mt-0.5">
                       {new Date(receipt.createdAt).toLocaleDateString()} at {new Date(receipt.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </p>
@@ -213,13 +262,42 @@ export default function ReceiptsView() {
                   <p className="text-xs text-gray-500 mt-1 italic">&quot;{receipt.adminNotes}&quot;</p>
                 )}
                 {receipt.status === 'pending' && (
+                  <div className="mt-3 flex gap-2">
+                    <Button
+                      size="sm"
+                      className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                      onClick={() => openReview(receipt)}
+                    >
+                      <Eye className="w-4 h-4 mr-1.5" />
+                      Review
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-red-600 border-red-200 hover:bg-red-50"
+                      onClick={() => {
+                        setSelectedReceipt(receipt)
+                        setDeletePassword('')
+                        setShowDeleteDialog(true)
+                      }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+                {receipt.status !== 'pending' && (
                   <Button
                     size="sm"
-                    className="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => openReview(receipt)}
+                    variant="outline"
+                    className="w-full mt-3 text-red-600 border-red-200 hover:bg-red-50"
+                    onClick={() => {
+                      setSelectedReceipt(receipt)
+                      setDeletePassword('')
+                      setShowDeleteDialog(true)
+                    }}
                   >
-                    <Eye className="w-4 h-4 mr-1.5" />
-                    Review Receipt
+                    <Trash2 className="w-4 h-4 mr-1.5" />
+                    Delete Receipt
                   </Button>
                 )}
               </CardContent>
@@ -303,6 +381,35 @@ export default function ReceiptsView() {
             >
               <CheckCircle2 className="w-4 h-4 mr-1.5" />
               {reviewing ? 'Processing...' : 'Approve & Record Payment'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showDeleteDialog} onOpenChange={(open) => {
+        setShowDeleteDialog(open)
+        if (!open) setDeletePassword('')
+      }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete Receipt Permanently</DialogTitle>
+            <DialogDescription>
+              Delete this receipt from {selectedReceipt?.studentName}? If it has already been approved and recorded as a payment, enter the admin password to override.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label>Admin Password Override</Label>
+            <Input
+              type="password"
+              value={deletePassword}
+              onChange={(e) => setDeletePassword(e.target.value)}
+              placeholder="Required only for processed receipts"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowDeleteDialog(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDelete}>
+              Delete Receipt
             </Button>
           </DialogFooter>
         </DialogContent>

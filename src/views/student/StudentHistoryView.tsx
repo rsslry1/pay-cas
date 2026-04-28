@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface Receipt {
   id: string
@@ -107,6 +108,9 @@ export default function StudentHistoryView() {
     loadReceipts()
     loadTransactions()
   }, [loadReceipts, loadTransactions])
+
+  useAutoRefresh(loadReceipts, { enabled: Boolean(studentId) })
+  useAutoRefresh(loadTransactions, { enabled: Boolean(studentId) })
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount)

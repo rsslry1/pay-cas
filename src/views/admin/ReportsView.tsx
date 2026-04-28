@@ -48,6 +48,7 @@ import {
   Legend,
 } from 'recharts'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface SummaryData {
   totalCollections: number
@@ -85,7 +86,17 @@ export default function ReportsView() {
     setLoadingSummary(true)
     try {
       const data = await reportsApi.summary()
-      setSummary(data)
+      const normalized = data?.summary || data || {}
+      setSummary({
+        totalCollections: normalized.totalCollections ?? normalized.totalCollected ?? 0,
+        outstandingBalance: normalized.outstandingBalance ?? 0,
+        paidStudents: normalized.paidStudents ?? 0,
+        unpaidStudents: normalized.unpaidStudents ?? 0,
+        totalStudents: normalized.totalStudents ?? 0,
+        collectionsOverTime: normalized.collectionsOverTime || [],
+        outstandingByCourse: normalized.outstandingByCourse || [],
+        paymentStatusDistribution: normalized.paymentStatusDistribution || [],
+      })
     } catch {
       toast.error('Failed to load report summary')
     } finally {
@@ -101,7 +112,19 @@ export default function ReportsView() {
       if (filterYear) params.year = filterYear
       if (filterBilling) params.billingId = filterBilling
       const data = await reportsApi.unpaid(params)
-      setUnpaid(data.students || data || [])
+      const rows = Array.isArray(data) ? data : data?.unpaidStudents || data?.students || []
+      setUnpaid(rows.map((row: any) => ({
+        id: row.id,
+        studentId: row.studentId || row.student?.studentId || '',
+        name:
+          row.name ||
+          [row.student?.firstName, row.student?.lastName].filter(Boolean).join(' ') ||
+          '-',
+        course: row.course || row.student?.course || '-',
+        year: row.year || row.student?.year || 0,
+        outstandingBalance: row.outstandingBalance ?? row.billing?.amount ?? 0,
+        billingTitle: row.billingTitle || row.billing?.title,
+      })))
     } catch {
       toast.error('Failed to load unpaid students')
     } finally {
@@ -116,6 +139,9 @@ export default function ReportsView() {
   useEffect(() => {
     loadUnpaid()
   }, [loadUnpaid])
+
+  useAutoRefresh(loadSummary)
+  useAutoRefresh(loadUnpaid)
 
   const handleExport = async (type: string) => {
     try {

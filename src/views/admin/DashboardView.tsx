@@ -34,6 +34,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface StatsData {
   totalStudents: number
@@ -64,6 +65,8 @@ export default function DashboardView() {
       setLoading(false)
     }
   }
+
+  useAutoRefresh(loadStats)
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount)

@@ -62,6 +62,7 @@ export async function PATCH(
       await db.transaction.create({
         data: {
           studentId: receipt.studentId,
+          billingId: receipt.billingId || null,
           referenceId: receipt.id,
           type: 'payment',
           amount: parseFloat(paymentAmount),
@@ -74,7 +75,11 @@ export async function PATCH(
 
       // Update billing assignment statuses
       const assignments = await db.billingAssignment.findMany({
-        where: { studentId: receipt.studentId, status: { in: ['pending', 'partially_paid'] } },
+        where: {
+          studentId: receipt.studentId,
+          ...(receipt.billingId ? { billingId: receipt.billingId } : {}),
+          status: { in: ['pending', 'partially_paid'] },
+        },
         include: { billing: true },
       })
 

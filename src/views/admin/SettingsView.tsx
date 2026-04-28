@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/table'
 import { Textarea } from '@/components/ui/textarea'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface FeeCategory {
   id: string
@@ -147,25 +148,44 @@ function GeneralSettings() {
     try {
       const data = await settingsApi.get()
       const s: Record<string, string> = {}
-      const items = Array.isArray(data) ? data : data.settings || []
-      items.forEach((item: any) => {
-        if (!item.key.startsWith('session:')) {
-          s[item.key] = item.value
-        }
-      })
+      if (Array.isArray(data)) {
+        data.forEach((item: any) => {
+          if (!item.key.startsWith('session:')) {
+            s[item.key] = item.value
+          }
+        })
+      } else if (Array.isArray(data?.settings)) {
+        data.settings.forEach((item: any) => {
+          if (!item.key.startsWith('session:')) {
+            s[item.key] = item.value
+          }
+        })
+      } else if (data?.settings && typeof data.settings === 'object') {
+        Object.entries(data.settings).forEach(([key, value]) => {
+          if (!key.startsWith('session:')) {
+            s[key] = String(value ?? '')
+          }
+        })
+      }
       setSettings(s)
       setOriginal(JSON.parse(JSON.stringify(s)))
-    } catch {
-      toast.error('Failed to load settings')
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load settings')
     } finally {
       setLoading(false)
     }
   }
 
+  useAutoRefresh(loadSettings)
+
   const handleSave = async () => {
     setSaving(true)
     try {
-      await settingsApi.update(settings)
+      await Promise.all(
+        Object.entries(settings).map(([key, value]) =>
+          settingsApi.update({ key, value })
+        )
+      )
       setOriginal(JSON.parse(JSON.stringify(settings)))
       toast.success('Settings saved successfully')
     } catch (err: any) {
@@ -245,7 +265,8 @@ function FeeCategoriesSettings() {
     setLoading(true)
     try {
       const data = await fcApi.list()
-      setCategories(data || [])
+      const items = Array.isArray(data) ? data : data?.categories || []
+      setCategories(items)
     } catch {
       toast.error('Failed to load fee categories')
     } finally {
@@ -256,6 +277,8 @@ function FeeCategoriesSettings() {
   useEffect(() => {
     loadCategories()
   }, [loadCategories])
+
+  useAutoRefresh(loadCategories)
 
   const handleDelete = async () => {
     if (!selected) return
@@ -438,7 +461,14 @@ function AcademicYearSettings() {
     setLoading(true)
     try {
       const data = await ayApi.list()
-      setYears(data || [])
+      const items = Array.isArray(data) ? data : data?.academicYears || []
+      setYears(items.map((item: any) => ({
+        id: item.id,
+        label: item.label || item.year,
+        startDate: item.startDate,
+        endDate: item.endDate,
+        isCurrent: Boolean(item.isCurrent),
+      })))
     } catch {
       toast.error('Failed to load academic years')
     } finally {
@@ -449,6 +479,8 @@ function AcademicYearSettings() {
   useEffect(() => {
     loadYears()
   }, [loadYears])
+
+  useAutoRefresh(loadYears)
 
   const setCurrent = async (ay: AcademicYearItem) => {
     try {
@@ -592,7 +624,7 @@ function AcademicYearFormDialog({
     if (!label) { toast.error('Label is required'); return }
     setSaving(true)
     try {
-      await ayApi.create({ label, startDate, endDate, isCurrent: false })
+      await ayApi.create({ year: label, startDate, endDate, isCurrent: false })
       toast.success('Academic year created')
       onOpenChange(false)
       onSave()
@@ -650,10 +682,22 @@ function AuditLogsTab() {
       const params: Record<string, string> = { page: String(page), limit: String(pageSize) }
       if (search) params.search = search
       const data = await alApi.list(params)
-      setLogs(data.logs || data.data || [])
-      setTotal(data.total || data.logs?.length || 0)
-    } catch {
-      toast.error('Failed to load audit logs')
+      const rows = Array.isArray(data) ? data : data?.logs || data?.data || []
+      setLogs(
+        rows.map((log: any) => ({
+          id: log.id,
+          action: log.action,
+          entityType: log.entityType || log.entity || '-',
+          entityId: log.entityId,
+          userId: log.userId,
+          userName: log.userName || log.user?.name || log.user?.email || '-',
+          details: log.details,
+          createdAt: log.createdAt,
+        }))
+      )
+      setTotal(data?.total || data?.pagination?.total || rows.length || 0)
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to load audit logs')
     } finally {
       setLoading(false)
     }
@@ -663,6 +707,8 @@ function AuditLogsTab() {
     loadLogs()
   }, [loadLogs])
 
+  useAutoRefresh(loadLogs)
+
   useEffect(() => {
     setPage(1)
   }, [search])
@@ -670,10 +716,11 @@ function AuditLogsTab() {
   const totalPages = Math.ceil(total / pageSize)
 
   const getActionColor = (action: string) => {
-    if (action.includes('CREATE')) return 'bg-emerald-100 text-emerald-700'
-    if (action.includes('UPDATE')) return 'bg-blue-100 text-blue-700'
-    if (action.includes('DELETE')) return 'bg-red-100 text-red-700'
-    if (action.includes('LOGIN')) return 'bg-purple-100 text-purple-700'
+    const upper = action.toUpperCase()
+    if (upper.includes('CREATE')) return 'bg-emerald-100 text-emerald-700'
+    if (upper.includes('UPDATE')) return 'bg-blue-100 text-blue-700'
+    if (upper.includes('DELETE')) return 'bg-red-100 text-red-700'
+    if (upper.includes('LOGIN')) return 'bg-purple-100 text-purple-700'
     return 'bg-gray-100 text-gray-700'
   }
 

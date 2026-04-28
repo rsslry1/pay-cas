@@ -50,6 +50,11 @@ export const billings = {
     apiFetch(`/api/billings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) =>
     apiFetch(`/api/billings/${id}`, { method: 'DELETE' }),
+  hardDelete: (id: string, data?: any) =>
+    apiFetch(`/api/billings/${id}/hard-delete`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
   toggle: (id: string) =>
     apiFetch(`/api/billings/${id}/toggle`, { method: 'PATCH' }),
   assign: (data: any) =>
@@ -78,11 +83,21 @@ export const receipts = {
     apiFetch('/api/receipts', { method: 'POST', body: JSON.stringify(data) }),
   review: (id: string, data: any) =>
     apiFetch(`/api/receipts/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
+  hardDelete: (id: string, data?: any) =>
+    apiFetch(`/api/receipts/${id}/hard-delete`, {
+      method: 'DELETE',
+      body: data ? JSON.stringify(data) : undefined,
+    }),
 }
 
 export const payments = {
   list: (params?: Record<string, string>) =>
     apiFetch(`/api/payments?${new URLSearchParams(params || {})}`),
+  hardDelete: (id: string, data: any) =>
+    apiFetch(`/api/payments/${id}/hard-delete`, {
+      method: 'DELETE',
+      body: JSON.stringify(data),
+    }),
 }
 
 export const reportsApi = {

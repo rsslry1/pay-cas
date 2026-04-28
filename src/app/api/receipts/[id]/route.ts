@@ -13,6 +13,9 @@ export async function GET(
     const receipt = await db.receipt.findUnique({
       where: { id },
       include: {
+        billing: {
+          select: { id: true, title: true },
+        },
         student: {
           select: {
             id: true,

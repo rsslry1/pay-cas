@@ -7,11 +7,61 @@ export async function GET(request: NextRequest) {
     const user = await requireAuth()
 
     const { searchParams } = new URL(request.url)
+    const studentId = searchParams.get('studentId')
     const status = searchParams.get('status')
     const academicYear = searchParams.get('academicYear')
     const search = searchParams.get('search')
     const page = parseInt(searchParams.get('page') || '1')
     const limit = parseInt(searchParams.get('limit') || '20')
+
+    const targetStudentId =
+      user.role === 'student' ? user.studentProfile?.id : studentId
+
+    if (targetStudentId) {
+      const assignmentWhere: any = { studentId: targetStudentId }
+      if (status) assignmentWhere.status = status
+      if (search) {
+        assignmentWhere.billing = {
+          OR: [
+            { title: { contains: search } },
+            { description: { contains: search } },
+          ],
+        }
+      }
+      if (academicYear) {
+        assignmentWhere.billing = {
+          ...(assignmentWhere.billing || {}),
+          academicYear,
+        }
+      }
+
+      const [assignments, total] = await Promise.all([
+        db.billingAssignment.findMany({
+          where: assignmentWhere,
+          include: {
+            billing: {
+              include: {
+                feeCategory: true,
+              },
+            },
+          },
+          orderBy: { assignedAt: 'desc' },
+          skip: (page - 1) * limit,
+          take: limit,
+        }),
+        db.billingAssignment.count({ where: assignmentWhere }),
+      ])
+
+      return NextResponse.json({
+        assignments,
+        pagination: {
+          page,
+          limit,
+          total,
+          totalPages: Math.ceil(total / limit),
+        },
+      })
+    }
 
     const where: any = {}
 

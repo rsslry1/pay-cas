@@ -63,6 +63,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Separator } from '@/components/ui/separator'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface Student {
   id: string
@@ -122,6 +123,8 @@ export default function StudentsView() {
   useEffect(() => {
     loadStudents()
   }, [loadStudents])
+
+  useAutoRefresh(loadStudents)
 
   useEffect(() => {
     setPage(1)
@@ -379,6 +382,7 @@ function StudentFormDialog({
     middleName: '',
     lastName: '',
     email: '',
+    password: '',
     course: '',
     year: '1',
     section: 'A',
@@ -392,6 +396,7 @@ function StudentFormDialog({
         middleName: student.middleName || '',
         lastName: student.lastName,
         email: student.email || '',
+        password: '',
         course: student.course,
         year: String(student.year),
         section: student.section,
@@ -403,6 +408,7 @@ function StudentFormDialog({
         middleName: '',
         lastName: '',
         email: '',
+        password: '',
         course: '',
         year: '1',
         section: 'A',
@@ -467,6 +473,17 @@ function StudentFormDialog({
             <Label>Email</Label>
             <Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
           </div>
+          {!student && (
+            <div className="space-y-2">
+              <Label>Password</Label>
+              <Input
+                type="password"
+                value={form.password}
+                onChange={(e) => setForm({ ...form, password: e.target.value })}
+                placeholder="Leave blank to use student123"
+              />
+            </div>
+          )}
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label>Course *</Label>

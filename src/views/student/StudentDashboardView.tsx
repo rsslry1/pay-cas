@@ -21,6 +21,7 @@ import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface BalanceData {
   totalCharges: number
@@ -105,6 +106,8 @@ export default function StudentDashboardView() {
       setLoading(false)
     }
   }
+
+  useAutoRefresh(loadData, { enabled: Boolean(studentId) })
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount)

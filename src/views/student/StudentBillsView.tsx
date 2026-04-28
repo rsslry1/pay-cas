@@ -13,13 +13,11 @@ import {
   CalendarDays,
   CreditCard,
   DollarSign,
-  X,
 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Separator } from '@/components/ui/separator'
 import {
   Dialog,
   DialogContent,
@@ -29,6 +27,7 @@ import {
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useAutoRefresh } from '@/hooks/use-auto-refresh'
 
 interface Assignment {
   id: string
@@ -56,7 +55,7 @@ interface LedgerTransaction {
   balanceBefore: number
   balanceAfter: number
   createdAt: string
-  billing?: { title: string }
+  billing?: { id: string; title: string }
 }
 
 export default function StudentBillsView() {
@@ -88,6 +87,8 @@ export default function StudentBillsView() {
     loadData()
   }, [loadData])
 
+  useAutoRefresh(loadData, { enabled: Boolean(studentId) })
+
   const openDetail = async (assignment: Assignment) => {
     setSelectedAssignment(assignment)
     setShowDetailDialog(true)
@@ -96,18 +97,16 @@ export default function StudentBillsView() {
     try {
       const ledgerData = await students.ledger(studentId!)
       const txns: LedgerTransaction[] = ledgerData.transactions || []
-      const related = txns.filter(
-        (t) =>
+      const normalizedTitle = assignment.billing.title.toLowerCase()
+      const combined = txns.filter((t) => {
+        const description = t.description?.toLowerCase() || ''
+        return (
+          t.billing?.id === assignment.billing.id ||
           t.billing?.title === assignment.billing.title ||
-          t.type === 'charge' // charges related to this billing
-      )
-      // Also filter by checking if description contains billing title
-      const billingRelated = txns.filter(
-        (t) =>
-          t.description?.toLowerCase().includes(assignment.billing.title.toLowerCase()) ||
-          t.description?.includes(assignment.billingId)
-      )
-      const combined = [...new Map([...related, ...billingRelated].map((t) => [t.id, t])).values()]
+          description.includes(normalizedTitle) ||
+          description.includes(assignment.billingId.toLowerCase())
+        )
+      })
       combined.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       setAssignmentPayments(combined)
     } catch {
@@ -119,6 +118,23 @@ export default function StudentBillsView() {
 
   const formatCurrency = (amount: number) =>
     new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(amount)
+
+  const getAssignmentBreakdown = (assignment: Assignment | null, transactions: LedgerTransaction[]) => {
+    if (!assignment) {
+      return { shouldPay: 0, paid: 0, remaining: 0, charges: 0 }
+    }
+
+    const charges = transactions
+      .filter((tx) => tx.type === 'charge')
+      .reduce((sum, tx) => sum + tx.amount, 0)
+    const paid = transactions
+      .filter((tx) => tx.type === 'payment')
+      .reduce((sum, tx) => sum + tx.amount, 0)
+    const shouldPay = charges || assignment.billing.amount
+    const remaining = Math.max(shouldPay - paid, 0)
+
+    return { shouldPay, paid, remaining, charges }
+  }
 
   const getStatusConfig = (status: string) => {
     switch (status) {
@@ -174,6 +190,7 @@ export default function StudentBillsView() {
   )
   const partiallyPaid = assignments.filter((a) => a.status === 'partially_paid')
   const paid = assignments.filter((a) => a.status === 'fully_paid')
+  const assignmentBreakdown = getAssignmentBreakdown(selectedAssignment, assignmentPayments)
 
   const renderGroup = (title: string, items: Assignment[], icon: React.ReactNode) => {
     if (items.length === 0) return null
@@ -341,7 +358,7 @@ export default function StudentBillsView() {
 
       {/* Detail Dialog */}
       <Dialog open={showDetailDialog} onOpenChange={setShowDetailDialog}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle>{selectedAssignment?.billing.title}</DialogTitle>
             <DialogDescription>Billing details and payment history</DialogDescription>
@@ -349,71 +366,104 @@ export default function StudentBillsView() {
 
           {selectedAssignment && (
             <div className="space-y-4">
-              {/* Billing Info */}
-              <div className="bg-gray-50 rounded-xl p-4 space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Amount</span>
-                  <span className="text-sm font-bold text-gray-900">
-                    {formatCurrency(selectedAssignment.billing.amount)}
-                  </span>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-xl bg-gray-50 p-3">
+                  <p className="text-[11px] text-gray-500">Should Pay</p>
+                  <p className="mt-1 text-sm font-bold text-gray-900 break-words">
+                    {formatCurrency(assignmentBreakdown.shouldPay)}
+                  </p>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Status</span>
-                  <Badge
-                    variant="secondary"
-                    className={cn(
-                      'text-[10px] font-semibold',
-                      getStatusConfig(selectedAssignment.status).color
-                    )}
-                  >
-                    {getStatusConfig(selectedAssignment.status).label}
-                  </Badge>
+                <div className="rounded-xl bg-emerald-50 p-3">
+                  <p className="text-[11px] text-emerald-700/80">You Paid</p>
+                  <p className="mt-1 text-sm font-bold text-emerald-700 break-words">
+                    {formatCurrency(assignmentBreakdown.paid)}
+                  </p>
                 </div>
-                {selectedAssignment.billing.feeCategory && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Category</span>
-                    <span className="text-sm text-gray-900">
-                      {selectedAssignment.billing.feeCategory.name}
-                    </span>
+                <div className={cn(
+                  'rounded-xl p-3',
+                  assignmentBreakdown.remaining > 0 ? 'bg-red-50' : 'bg-emerald-50'
+                )}>
+                  <p className={cn(
+                    'text-[11px]',
+                    assignmentBreakdown.remaining > 0 ? 'text-red-700/80' : 'text-emerald-700/80'
+                  )}>
+                    Remaining
+                  </p>
+                  <p className={cn(
+                    'mt-1 text-sm font-bold break-words',
+                    assignmentBreakdown.remaining > 0 ? 'text-red-700' : 'text-emerald-700'
+                  )}>
+                    {formatCurrency(assignmentBreakdown.remaining)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-xl bg-gray-50 p-4 space-y-3">
+                <div className="grid grid-cols-2 gap-x-4 gap-y-3">
+                  <div>
+                    <p className="text-xs text-gray-500">Original Amount</p>
+                    <p className="text-sm font-medium text-gray-900 break-words">
+                      {formatCurrency(selectedAssignment.billing.amount)}
+                    </p>
                   </div>
-                )}
-                {selectedAssignment.billing.dueDate && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Due Date</span>
-                    <span
+                  <div>
+                    <p className="text-xs text-gray-500">Status</p>
+                    <Badge
+                      variant="secondary"
                       className={cn(
-                        'text-sm font-medium',
-                        isOverdue(selectedAssignment.billing.dueDate, selectedAssignment.status)
-                          ? 'text-red-600'
-                          : 'text-gray-900'
+                        'mt-1 text-[10px] font-semibold',
+                        getStatusConfig(selectedAssignment.status).color
                       )}
                     >
-                      {new Date(selectedAssignment.billing.dueDate).toLocaleDateString('en-PH', {
-                        month: 'long',
+                      {getStatusConfig(selectedAssignment.status).label}
+                    </Badge>
+                  </div>
+                  {selectedAssignment.billing.feeCategory && (
+                    <div>
+                      <p className="text-xs text-gray-500">Category</p>
+                      <p className="text-sm text-gray-900">
+                        {selectedAssignment.billing.feeCategory.name}
+                      </p>
+                    </div>
+                  )}
+                  {selectedAssignment.billing.dueDate && (
+                    <div>
+                      <p className="text-xs text-gray-500">Due Date</p>
+                      <p
+                        className={cn(
+                          'text-sm font-medium',
+                          isOverdue(selectedAssignment.billing.dueDate, selectedAssignment.status)
+                            ? 'text-red-600'
+                            : 'text-gray-900'
+                        )}
+                      >
+                        {new Date(selectedAssignment.billing.dueDate).toLocaleDateString('en-PH', {
+                          month: 'long',
+                          day: 'numeric',
+                          year: 'numeric',
+                        })}
+                      </p>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-xs text-gray-500">Assigned</p>
+                    <p className="text-sm text-gray-900">
+                      {new Date(selectedAssignment.assignedAt).toLocaleDateString('en-PH', {
+                        month: 'short',
                         day: 'numeric',
                         year: 'numeric',
                       })}
-                    </span>
+                    </p>
                   </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-xs text-gray-500">Assigned</span>
-                  <span className="text-sm text-gray-900">
-                    {new Date(selectedAssignment.assignedAt).toLocaleDateString('en-PH', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric',
-                    })}
-                  </span>
+                  {selectedAssignment.billing.academicYear && (
+                    <div>
+                      <p className="text-xs text-gray-500">Academic Year</p>
+                      <p className="text-sm text-gray-900">
+                        {selectedAssignment.billing.academicYear.year}
+                      </p>
+                    </div>
+                  )}
                 </div>
-                {selectedAssignment.billing.academicYear && (
-                  <div className="flex justify-between">
-                    <span className="text-xs text-gray-500">Academic Year</span>
-                    <span className="text-sm text-gray-900">
-                      {selectedAssignment.billing.academicYear.year}
-                    </span>
-                  </div>
-                )}
               </div>
 
               {selectedAssignment.billing.description && (
@@ -463,7 +513,11 @@ export default function StudentBillsView() {
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">
-                              {tx.description || tx.type}
+                              {tx.type === 'payment'
+                                ? `You paid ${formatCurrency(tx.amount)}`
+                                : tx.type === 'charge'
+                                ? `Charge posted for ${selectedAssignment.billing.title}`
+                                : tx.description || tx.type}
                             </p>
                             <p className="text-[10px] text-gray-400">
                               {new Date(tx.createdAt).toLocaleDateString('en-PH', {
