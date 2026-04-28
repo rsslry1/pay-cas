@@ -11,7 +11,7 @@ export function useAutoRefresh(
   refresh: () => void | Promise<void>,
   options: UseAutoRefreshOptions = {}
 ) {
-  const { enabled = true, intervalMs = 15000 } = options
+  const { enabled = true, intervalMs = 100000 } = options
   const refreshRef = useRef(refresh)
 
   useEffect(() => {
