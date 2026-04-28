@@ -1,0 +1,240 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ==================== User & Auth ====================
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String
+  role          String   @default("staff") // admin, staff, student
+  avatar        String?
+  isActive      Boolean  @default(true)
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  studentProfile StudentProfile?
+  notifications  Notification[]
+  auditLogs      AuditLog[]
+  paymentsProcessed Payment[]
+  transactionsCreated Transaction[] @relation("TransactionCreator")
+  receiptsReviewed    Receipt[] @relation("ReceiptReviewer")
+
+  @@index([role])
+  @@index([email])
+}
+
+model StudentProfile {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  studentId     String   @unique // e.g., "STU-2024-001"
+  firstName     String
+  lastName      String
+  middleName    String?
+  course        String?
+  year          Int?
+  section       String?
+  dateOfBirth   DateTime?
+  gender        String?
+  address       String?
+  contactNumber String?
+  parentName    String?
+  parentContact String?
+  enrollDate    DateTime @default(now())
+  status        String   @default("active") // active, inactive, graduated
+
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingAssignments BillingAssignment[]
+  transactions   Transaction[]
+  receipts       Receipt[]
+  payments       Payment[]
+
+  @@index([studentId])
+  @@index([course])
+  @@index([year])
+  @@index([status])
+}
+
+// ==================== Billing ====================
+
+model FeeCategory {
+  id          String     @id @default(cuid())
+  name        String
+  description String?
+  isDefault   Boolean    @default(false)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  billings    Billing[]
+}
+
+model Billing {
+  id              String     @id @default(cuid())
+  title           String
+  description     String?
+  amount          Float
+  dueDate         DateTime?
+  feeCategoryId   String?
+  status          String     @default("active") // active, inactive, archived
+  academicYear    String?
+  semester        String?    // 1st, 2nd, Summer
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  feeCategory       FeeCategory?        @relation(fields: [feeCategoryId], references: [id])
+  assignments       BillingAssignment[]
+  transactions      Transaction[]
+
+  @@index([status])
+  @@index([academicYear])
+}
+
+model BillingAssignment {
+  id              String   @id @default(cuid())
+  billingId       String
+  studentId       String
+  assignedAt      DateTime @default(now())
+  status          String   @default("pending") // pending, partially_paid, fully_paid, waived
+
+  billing         Billing        @relation(fields: [billingId], references: [id], onDelete: Cascade)
+  student         StudentProfile @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@unique([billingId, studentId])
+  @@index([studentId])
+  @@index([status])
+}
+
+// ==================== Ledger & Transactions ====================
+
+model Transaction {
+  id              String   @id @default(cuid())
+  studentId       String
+  billingId       String?
+  type            String   // charge, payment, adjustment
+  amount          Float
+  description     String?
+  balanceBefore   Float
+  balanceAfter    Float
+  referenceId     String?  // links to receipt or payment record
+  createdById     String?  // admin/staff who created this
+  createdAt       DateTime @default(now())
+
+  student         StudentProfile @relation(fields: [studentId], references: [id])
+  billing         Billing?       @relation(fields: [billingId], references: [id])
+  createdBy       User?          @relation("TransactionCreator", fields: [createdById], references: [id])
+
+  @@index([studentId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+// ==================== Receipt & Payment ====================
+
+model Receipt {
+  id              String   @id @default(cuid())
+  studentId       String
+  imageUrl        String
+  imageStorageKey String?
+  submittedAt     DateTime @default(now())
+  status          String   @default("pending") // pending, approved, rejected
+  adminNotes      String?
+  reviewedById    String?
+  reviewedAt      DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  student         StudentProfile @relation(fields: [studentId], references: [id])
+  reviewedBy      User?          @relation("ReceiptReviewer", fields: [reviewedById], references: [id])
+  payments        Payment[]
+
+  @@index([studentId])
+  @@index([status])
+  @@index([submittedAt])
+}
+
+model Payment {
+  id              String   @id @default(cuid())
+  studentId       String
+  receiptId       String   @unique
+  amount          Float
+  processedById   String
+  processedAt     DateTime @default(now())
+  createdAt       DateTime @default(now())
+
+  student         StudentProfile @relation(fields: [studentId], references: [id])
+  receipt         Receipt        @relation(fields: [receiptId], references: [id])
+  processedBy     User           @relation(fields: [processedById], references: [id])
+
+  @@index([studentId])
+  @@index([processedById])
+  @@index([processedAt])
+}
+
+// ==================== Notifications ====================
+
+model Notification {
+  id          String   @id @default(cuid())
+  userId      String
+  title       String
+  message     String
+  type        String   // receipt_submitted, receipt_approved, receipt_rejected, balance_updated, due_reminder
+  isRead      Boolean  @default(false)
+  link        String?  // navigation link
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isRead])
+  @@index([type])
+}
+
+// ==================== System Settings ====================
+
+model SystemSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+model AcademicYear {
+  id          String   @id @default(cuid())
+  year        String   @unique // e.g., "2024-2025"
+  isCurrent   Boolean  @default(false)
+  startDate   DateTime
+  endDate     DateTime
+  createdAt   DateTime @default(now())
+
+  @@index([isCurrent])
+}
+
+// ==================== Audit Logs ====================
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  userId      String
+  action      String   // create, update, delete, login, approve, reject
+  entity      String   // billing, receipt, payment, student, etc.
+  entityId    String?
+  details     String?  // JSON string of changes
+  ipAddress   String?
+  createdAt   DateTime @default(now())
+
+  user        User     @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([entity])
+  @@index([createdAt])
+}
